@@ -1,0 +1,184 @@
+---
+title: "Exercise Prediction Analysis"
+output: html_notebook
+---
+
+To achieve the project objective of predicting the manner in which individuals exercised using the provided training and test datasets, i followed a systematic approach that included data preparation, model building, cross-validation, and performance evaluation. Here is a detailed report on our methodology and findings.
+
+# 1. Download Packages
+
+```{r}
+# Load necessary packages
+if (!requireNamespace("caret", quietly = TRUE)) {
+  install.packages("caret")
+}
+if (!requireNamespace("randomForest", quietly = TRUE)) {
+  install.packages("randomForest")
+}
+
+# Load libraries
+library(caret)
+library(randomForest)
+```
+
+# 2. Data Preparation
+
+### 2.A. Loading the Data
+
+I started by loading the training and test datasets:
+
+```{r}
+# Load the datasets
+train_data <- read.csv('pml-training.csv', na.strings=c("NA", "#DIV/0!"))
+test_data <- read.csv('pml-testing.csv', na.strings=c("NA", "#DIV/0!"))
+```
+
+### 2.B. Data Cleaning
+
+I removed columns with many missing values and those deemed irrelevant for the analysis (e.g., identifiers and dates):
+
+```{r}
+# Remove columns with many missing values
+train_data <- train_data[, colSums(is.na(train_data)) == 0]
+test_data <- test_data[, colSums(is.na(test_data)) == 0]
+
+
+# Remove irrelevant columns (e.g., identifiers and dates)
+cols_to_remove <- 1:7  # Index of columns to remove
+train_data <- train_data[, -cols_to_remove]
+test_data <- test_data[, -cols_to_remove]
+
+```
+
+I also removed columns with constant values as they provide no useful information for prediction:
+
+```{r}
+train_data <- train_data[, sapply(train_data, function(x) length(unique(x)) > 1)]
+test_data <- test_data[, names(test_data) %in% names(train_data)]
+
+```
+
+### 2.C. Data Normalization
+
+I normalized the data so that all features are on the same scale, which is often beneficial for machine learning algorithms
+
+```{r}
+preProc <- preProcess(train_data[, -ncol(train_data)], method = c("center", "scale"))
+train_data[, -ncol(train_data)] <- predict(preProc, train_data[, -ncol(train_data)])
+print(train_data)
+```
+
+```{r}
+test_data <- predict(preProc, test_data)
+print(test_data)
+```
+
+# 3. Model building
+
+### 3.A.Data Splitting
+
+I separated the training dataset into features (X) and target variable (y)
+
+```{r}
+X <- train_data[, -ncol(train_data)]
+y <- train_data$classe
+```
+
+Then, i split the data into training and validation sets to evaluate our model's performance
+
+```{r}
+set.seed(42)
+trainIndex <- createDataPartition(y, p = 0.8, list = FALSE)
+trainSet <- train_data[trainIndex, ]
+validationSet <- train_data[-trainIndex, ]
+
+
+```
+
+### 3.B. Model Training
+
+I used a Random Forest model with grid search to find the best hyperparameters. I performed 5-fold cross-validation to assess the model's performance
+
+```{r}
+# Register parallel backend
+cl <- makeCluster(detectCores() - 1)
+registerDoParallel(cl)
+
+# Hyperparameter tuning using random search
+train_control <- trainControl(method = "cv", number = 5, search = "random")
+
+# Train the model using parallel processing
+set.seed(42)
+rf_model <- train(classe ~ ., data = trainSet, method = "rf", trControl = train_control, tuneLength = 10)
+
+# Print the best model parameters
+print(rf_model)
+
+
+```
+
+# 4. Model Evaluation
+
+### 4.A. Cross-Validation Results
+
+We displayed the cross-validation results to identify the best hyperparameters
+
+```{r}
+print(rf_model)
+
+```
+
+The Random Forest model exhibits exceptional performance in classifying the dataset, with an overall accuracy of 94.04%. During cross-validation, the model achieved its highest accuracy of 94.40% with an `mtry` value of 7. 
+
+The Kappa score of 0.9245 indicates a strong agreement between predicted and actual values. 
+
+
+### 4.B. Predictions and Confusion Matrix
+
+We used the trained model to predict the validation set and calculated the confusion matrix to evaluate the model's performance
+
+```{r}
+# Predict on the validation set
+predictions <- predict(rf_model, newdata = validationSet)
+
+# Ensure validationSet$classe is a factor with levels
+validationSet$classe <- factor(validationSet$classe, levels = c("A", "B", "C", "D", "E"))
+
+# Create confusion matrix
+confMatrix <- confusionMatrix(predictions, validationSet$classe)
+
+# Print confusion matrix
+print(confMatrix)
+
+
+
+```
+
+The confusion matrix shows that the model performs exceptionally well, particularly for classes A and E, with high sensitivity and specificity. While classes B, C, and D exhibit minor misclassifications, the overall error rates are low. 
+
+To further enhance the model, additional hyperparameter tuning, data preprocessing, or exploring alternative models could be considered. Overall, the Random Forest model demonstrates robust classification capabilities with excellent generalization to out-of-sample data.
+
+### 4.C. Variable Importance
+
+We visualized the importance of variables to understand which features were most influential in the model
+
+```{r}
+varImpPlot(cv_model$finalModel)
+
+```
+
+# 5. Predictions on the Test Set
+
+Finally, we used the model to predict the outcomes of the 20 test cases:
+
+```{r}
+test_predictions <- predict(cv_model, newdata = test_data)
+print(test_predictions)
+
+```
+
+# 6. Conclusion
+
+The Random Forest model was built systematically, following a rigorous approach for data cleaning, feature selection, normalization, cross-validation, and performance evaluation. The confusion matrix demonstrated good accuracy, giving us confidence in the expected out-of-sample error of the model. The variable importance plot revealed the most critical features for predicting the target variable "classe".
+
+In summary, the model is well-trained and ready to be used to predict the manner in which individuals exercised, with solid performance confirmed by cross-validation.
